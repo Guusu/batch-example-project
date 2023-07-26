@@ -1,14 +1,12 @@
 package com.christianoette._A_the_basics._02_read_write_process;
 
 import com.christianoette.testutils.CourseUtilBatchTestConfig;
-import com.christianoette.utils.CourseUtils;
 import org.junit.jupiter.api.Test;
 import org.springframework.batch.core.*;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
-import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.step.builder.SimpleStepBuilder;
-import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.json.JacksonJsonObjectMarshaller;
 import org.springframework.batch.item.json.JacksonJsonObjectReader;
@@ -16,15 +14,14 @@ import org.springframework.batch.item.json.JsonFileItemWriter;
 import org.springframework.batch.item.json.JsonItemReader;
 import org.springframework.batch.item.json.builder.JsonFileItemWriterBuilder;
 import org.springframework.batch.item.json.builder.JsonItemReaderBuilder;
-import org.springframework.batch.item.support.PassThroughItemProcessor;
 import org.springframework.batch.test.JobLauncherTestUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.util.ResourceUtils;
 
 import java.io.File;
@@ -41,6 +38,8 @@ class ProcessorTest {
     @Test
     void runJob() throws Exception {
         JobParameters jobParameters = new JobParametersBuilder()
+                .addParameter("inputPath",new JobParameter("classpath:files/_A/input.json"))
+                .addParameter("outputPath",new JobParameter("output/output.json"))
                 .toJobParameters();
 
         JobExecution jobExecution = jobLauncherTestUtils.launchJob(jobParameters);
@@ -66,49 +65,71 @@ class ProcessorTest {
 
         @Bean
         public Step readerStep() {
-            SimpleStepBuilder<InputAndOutputData, InputAndOutputData> simpleStepBuilder
+            SimpleStepBuilder<InputData, OutputData> simpleStepBuilder
                     = stepBuilderFactory.get("readJsonStep")
                     .chunk(1);
 
-            return simpleStepBuilder.reader(reader())
-                    .processor(new PassThroughItemProcessor<>())
-                    .writer(writer()).build();
+            return simpleStepBuilder.reader(reader(null))
+                    .processor(processor())
+                    .writer(writer(null))
+                    .build();
         }
 
         @Bean
-        public JsonItemReader<InputAndOutputData> reader() {
+        public ItemProcessor<InputData,OutputData> processor() {
+            return inputData -> {
+                OutputData outputData = new OutputData();
+                outputData.outputValue = inputData.value.toUpperCase();
+                return outputData;
+            };
+        }
+
+        @Bean
+        @StepScope
+        public JsonItemReader<InputData> reader(@Value("#{jobParameters['inputPath']}sisi") String inputPath) {
             File file;
             try {
-                file = ResourceUtils.getFile("classpath:files/_A/input.json");
+                file = ResourceUtils.getFile(inputPath);
             } catch (FileNotFoundException ex) {
                 throw new IllegalArgumentException(ex);
             }
 
-            return new JsonItemReaderBuilder<InputAndOutputData>()
-                    .jsonObjectReader(new JacksonJsonObjectReader<>(InputAndOutputData.class))
+            return new JsonItemReaderBuilder<InputData>()
+                    .jsonObjectReader(new JacksonJsonObjectReader<>(InputData.class))
                     .resource(new FileSystemResource(file))
                     .name("jsonItemReader")
                     .build();
         }
 
         @Bean
-        public JsonFileItemWriter<InputAndOutputData> writer() {
-            Resource outputResource = new FileSystemResource("output/output.json");
+        @StepScope
+        public JsonFileItemWriter<OutputData> writer(@Value("#{jobParameters['outputPath']}") String outputPath) {
+            Resource outputResource = new FileSystemResource(outputPath);
 
-            return new JsonFileItemWriterBuilder<InputAndOutputData>()
+            return new JsonFileItemWriterBuilder<OutputData>()
                     .jsonObjectMarshaller(new JacksonJsonObjectMarshaller<>())
                     .resource(outputResource)
                     .name("jsonItemWriter")
                     .build();
         }
 
-        public static class InputAndOutputData {
+        public static class InputData {
             public String value;
 
             @Override
             public String toString() {
-                return "InputAndOutputData{" +
+                return "InputData{" +
                         "value='" + value + '\'' +
+                        '}';
+            }
+        }
+        public static class OutputData {
+            public String outputValue;
+
+            @Override
+            public String toString() {
+                return "OutputData{" +
+                        "value='" + outputValue + '\'' +
                         '}';
             }
         }
